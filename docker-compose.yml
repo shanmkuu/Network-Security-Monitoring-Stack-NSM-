@@ -1,0 +1,142 @@
+# =============================================================================
+# Network Security Monitoring (NSM) Stack
+# Services: Zeek | Elasticsearch 8.x | Logstash | Kibana | Traffic Generator
+#
+# NOTE: xpack.security.enabled=false is intentional for local dev convenience.
+# In production, re-enable it, configure TLS certs, and set strong passwords.
+# =============================================================================
+
+networks:
+  nsm-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  zeek-logs:
+  es-data:
+
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Elasticsearch 8.x — Data store
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: nsm-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false # Simplified for local dev
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - cluster.name=nsm-cluster
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - nsm-net
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qvE '\"status\":\"red\"'" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Kibana 8.x — Visualization UI
+  # ---------------------------------------------------------------------------
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: nsm-kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    ports:
+      - "5601:5601"
+    networks:
+      - nsm-net
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:5601/api/status | grep -q 'available'" ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Logstash 8.x — Log ingestion & enrichment pipeline
+  # ---------------------------------------------------------------------------
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.4
+    container_name: nsm-logstash
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - zeek-logs:/zeek-logs:ro
+    networks:
+      - nsm-net
+    environment:
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:9600/ | grep -q 'green'" ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Zeek — Network Security Monitor
+  # Monitors eth0 (internal Docker bridge) and writes JSON logs
+  # ---------------------------------------------------------------------------
+  zeek:
+    build:
+      context: ./zeek
+      dockerfile: Dockerfile
+    container_name: nsm-zeek
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: "service:elasticsearch" # Share network namespace → sees nsm-net traffic
+    volumes:
+      - zeek-logs:/zeek-logs
+      - ./zeek/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro
+    restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Traffic Generator — Simulates suspicious activity on nsm-net
+  # ---------------------------------------------------------------------------
+  traffic-gen:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.trafficgen
+    container_name: nsm-traffic-gen
+    networks:
+      nsm-net:
+        ipv4_address: 172.28.0.100
+    environment:
+      - TARGET_HOST=172.28.0.1
+      - SCAN_INTERVAL=60
+    restart: unless-stopped
+    depends_on:
+      - zeek

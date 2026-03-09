@@ -1,0 +1,38 @@
+# NSM Stack — Git Ignore
+
+# Environment secrets — NEVER commit .env
+.env
+
+# Elasticsearch data volume (too large for git)
+es-data/
+
+# Zeek log output (runtime data)
+zeek-logs/
+
+# Logstash sincedb (runtime state)
+logstash/data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Docker build artifacts
+*.tar
