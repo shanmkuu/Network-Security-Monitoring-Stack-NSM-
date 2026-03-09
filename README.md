@@ -154,7 +154,7 @@ curl http://localhost:9600/?pretty
 docker-compose down          # Stop services, keep volumes
 docker-compose down -v       # Stop + destroy all data
 ```
-
+made with love by [Emmanuel Leshan](https://shanmkuu.vercel.app)
 ---
 
 ## License
