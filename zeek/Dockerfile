@@ -25,4 +25,4 @@ ENV ZEEK_LOG_DIR=/zeek-logs
 USER root
 
 ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["zeek -i eth0 -C /usr/local/zeek/share/zeek/site/local.zeek LogAscii::output_dir=/zeek-logs 2>&1"]
+CMD ["zeek -i eth0 -C /usr/local/zeek/share/zeek/site/local.zeek 2>&1"]
